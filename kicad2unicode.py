@@ -4,6 +4,10 @@ import argparse
 import copy
 import re
 
+EMPTY = ((0,0),
+    [
+    ])
+
 R = ((0,0),
     [
      "╭┴╮",
@@ -172,32 +176,18 @@ PWR = ((0,-1),
       ],
       (-1,1))
 
-def draw_line(fb, start, end):
-    x0 = int(start[0] + 0.5)
-    x1 = int(end[0] + 0.5)
-    y0 = int(start[1] + 0.5)
-    y1 = int(end[1] + 0.5)
-    
-    if x0 > x1:
-        x0, x1 = x1, x0
-    if y0 > y1:
-        y0, y1 = y1, y0
-    
-    if x0 == x1:
-        for i in range(y0, y1+1):
-            fb[i][x0] = '\a'
-    elif y0 == y1:
-        for i in range(x0, x1+1):
-            fb[y0][i] = '\a'
-    else:
-        print("error, line neither horizontal nor vertical")
+POLYLINE_BASE = 0x13000
+WIRE_BASE = 0x14000
 
-def draw_junction(fb, pos):
-    pos_x = int(pos[0] + 0.5)
-    pos_y = int(pos[1] + 0.5)
-    #fb[pos_y][pos_x] = '╋'
+UP = 1
+RIGHT = 2
+DOWN = 4
+LEFT = 8
+JUNC = 16
     
 def draw_symbol(fb, symbol, pos):
+    if len(symbol[1]) == 0:
+        return
     pos_x = int(pos[0] + 0.5)
     pos_y = int(pos[1] + 0.5)
     rot = pos[2]
@@ -228,69 +218,103 @@ def draw_reference(fb, ref, offset = (0,0)):
 def draw_value(fb, val, offset = (0,0)):
     draw_reference(fb, val, offset)
 
-def render(fb, junctions):
+def draw_text(fb, t):
+    pos = t[0]
+    pos_x = int(pos[0] + 0.5)
+    pos_y = int(pos[1] + 0.5)
+    
+    for i,c in enumerate(t[2]):
+        fb[pos_y-1][pos_x+i] = c
+
+def add_direction_to_metachar(fb, x, y, direction, base):
+    cur = fb[y][x]
+    mask = base
+    if cur != ' ':
+        mask = ord(cur)
+    mask |= direction
+    fb[y][x] = chr(mask)
+    
+        
+
+def draw_polylines(fb, lines):
+    for l in lines:
+        start = l[0]
+        end = l[1]
+        x0 = min(start[0], end[0])
+        x1 = max(start[0], end[0])
+        
+        y0 = min(start[1], end[1])
+        y1 = max(start[1], end[1])
+        
+        if y0 == y1: #horizontal
+            add_direction_to_metachar(fb, x0, y0, RIGHT, POLYLINE_BASE)
+            add_direction_to_metachar(fb, x1, y1, LEFT, POLYLINE_BASE)
+            
+            for x in range(x0+1, x1):
+                fb[y0][x] = '╌'
+        
+        elif x0 == x1: #vertical
+            add_direction_to_metachar(fb, x0, y0, DOWN, POLYLINE_BASE)
+            add_direction_to_metachar(fb, x1, y1, UP, POLYLINE_BASE)
+            
+            for y in range(y0 + 1, y1):
+                fb[y][x0] = '┆'
+                
+        else:
+            print("error, polyline neither horizontal nor vertical")
+    
+def draw_wires(fb, wires):
+    for w in wires:
+        start = w[0]
+        end = w[1]
+        x0 = min(start[0], end[0])
+        x1 = max(start[0], end[0])
+        
+        y0 = min(start[1], end[1])
+        y1 = max(start[1], end[1])
+        
+        if y0 == y1: #horizontal
+            add_direction_to_metachar(fb, x0, y0, RIGHT, WIRE_BASE)
+            add_direction_to_metachar(fb, x1, y1, LEFT, WIRE_BASE)
+            
+            for x in range(x0+1, x1):
+                fb[y0][x] = '─'
+        
+        elif x0 == x1: #vertical
+            add_direction_to_metachar(fb, x0, y0, DOWN, WIRE_BASE)
+            add_direction_to_metachar(fb, x1, y1, UP, WIRE_BASE)
+            
+            for y in range(y0 + 1, y1):
+                fb[y][x0] = '│'
+                
+        else:
+            print("error, wire neither horizontal nor vertical")
+
+def draw_junctions(fb, junctions):
     for i in range(len(junctions)):
         pos = junctions[i]
         pos_x = int(pos[0] + 0.5)
         pos_y = int(pos[1] + 0.5)
-        junctions[i] = ((pos_x, pos_y))
+        add_direction_to_metachar(fb, pos_x, pos_y, JUNC, WIRE_BASE)
+        
+
+def render(fb):
+    
+    polyline_endpieces = ['x', '┆', '╌', '└', '┆', '┆', '┌', '├', '╌', '┘', '┄', '┴', '┐', '┤', '┬', '┼']
+    wire_endpieces =     ['x', '╽', '╼', '└', '╿', '│', '┌', '├', '╾', '┘', '─', '┴', '┐', '┤', '┬', '┼']
+    junctions =          ['x', '╽', '╼', '└', '╿', '┃', '┏', '┣', '╾', '┛', '━', '┻', '┓', '┫', '┳', '╋']
     
     fb_2 = copy.deepcopy(fb)
     for y in range(len(fb)):
         for x in range(len(fb[0])):
-            if fb[y][x] == '\a':
-                up = (fb[y-1][x] == '\a')
-                down = (fb[y+1][x] == '\a')
-                left = (fb[y][x-1] == '\a')
-                right = (fb[y][x+1] == '\a')
-                if up and down and left and right:
-                    if (x,y) in junctions:
-                        fb_2[y][x] = '╋'
-                    else:
-                        fb_2[y][x] = '┼'
-                
-                if up and down and left and not right:
-                    if (x,y) in junctions:
-                        fb_2[y][x] = '┫'
-                    else:
-                        fb_2[y][x] = '┤'
-                if up and down and not left and right:
-                    if (x,y) in junctions:
-                        fb_2[y][x] = '┣'
-                    else:
-                        fb_2[y][x] = '├'
-                if up and not down and left and right:
-                    if (x,y) in junctions:
-                        fb_2[y][x] = '┻'
-                    else:
-                        fb_2[y][x] = '┴'
-                if not up and down and left and right:
-                    if (x,y) in junctions:
-                        fb_2[y][x] = '┳'
-                    else:
-                        fb_2[y][x] = '┬'
-                
-                if up and down and not left and not right:
-                    fb_2[y][x] = '│'
-                if up and not down and left and not right:
-                    fb_2[y][x] = '┘'
-                if not up and down and left and not right:
-                    fb_2[y][x] = '┐'
-                if up and not down and not left and right:
-                    fb_2[y][x] = '└'
-                if not up and down and not left and right:
-                    fb_2[y][x] = '┌'
-                if not up and not down and left and right:
-                    fb_2[y][x] = '─'
-                
-                if up and not down and not left and not right:
-                    fb_2[y][x] = '╽'
-                if not up and not down and not left and right:
-                    fb_2[y][x] = '╾'
-                if not up and not down and left and not right:
-                    fb_2[y][x] = '╼'
-                if not up and down and not left and not right:
-                    fb_2[y][x] = '╿'
+            if ord(fb[y][x]) & POLYLINE_BASE == POLYLINE_BASE:
+                fb_2[y][x] = polyline_endpieces[ord(fb[y][x]) & 15]
+            
+            if ord(fb[y][x]) & WIRE_BASE == WIRE_BASE:
+                if ord(fb[y][x]) & JUNC:
+                    fb_2[y][x] = junctions[ord(fb[y][x]) & 15]
+                else:
+                    fb_2[y][x] = wire_endpieces[ord(fb[y][x]) & 15]
     
     start_x = 1000
     start_y = 1000
@@ -334,6 +358,10 @@ def parse_value(line, norm):
                 value = line[k][2].strip('"')
                 pos = parse_position(line[k][4], norm)
                 return (pos, value)
+
+def parse_line_coords(line, norm):
+    result = (int(float(line[1]) * norm + 0.5), int(float(line[2]) * norm + 0.5))
+    return result
 
 def init_argparse():
     parser = argparse.ArgumentParser(
@@ -396,6 +424,8 @@ def main():
     wires = []
     junctions = []
     devices = []
+    texts = []
+    lines = []
     
     parsed = nestedExpr('(',')').parseString(data).asList()
     for i in parsed[0]:
@@ -403,13 +433,22 @@ def main():
             start = i[1][1]
             end = i[1][2]
             
-            start_coords = (float(start[1]) * norm, float(start[2]) * norm)
-            end_coords = (float(end[1]) * norm, float(end[2]) * norm)
+            start_coords = parse_line_coords(start, norm)
+            end_coords = parse_line_coords(end, norm)
             wires.append((start_coords, end_coords))
         
         if i[0] == 'junction':
             pos = parse_position(i[1], norm)
             junctions.append(pos)
+        
+        if i[0] == 'polyline':
+            start = i[1][1]
+            end = i[1][2]
+            
+            start_coords = parse_line_coords(start, norm)
+            end_coords = parse_line_coords(end, norm)
+            lines.append( (start_coords, end_coords) )
+        
         if i[0] == 'symbol' :
             if i[1][1] == '"Device:R"':
                 pos = parse_position(i[2], norm)
@@ -489,7 +528,9 @@ def main():
                 val = parse_value(i, norm)
                 devices.append( (pos, PMOS, ref, val) )
             else:
+                print("unknown symbol found:")
                 print(i)
+        
         if i[0] == 'global_label' :
             pos = parse_position(i[3], norm)
             rot = pos[2]
@@ -503,12 +544,18 @@ def main():
                 LABEL = ((len(name)//2-1,0),["ᐊ " + name])
             
             devices.append( (pos, LABEL, ref, val) )
-    
+            
+        if i[0] == 'text':
+            pos = parse_position(i[2], norm)
+            val = i[1].strip('"')
+            ref = None
+            texts.append( (pos, ref, val) )
+            
     
     fb = [[' '] * fb_width for _ in range(fb_heigth)]
     
-    for w in wires:
-        draw_line(fb, w[0], w[1])
+    draw_wires(fb, wires)
+    draw_junctions(fb, junctions)
     
     for d in devices:
         draw_symbol(fb, d[1], d[0])
@@ -520,9 +567,13 @@ def main():
             if len(d[1]) > 2:
                 offset = d[1][2]
             draw_value(fb, d[3],offset)
-        
     
-    render(fb, junctions)
+    for t in texts:
+        draw_text(fb, t)
+    
+    draw_polylines(fb, lines)
+    
+    render(fb)
 
 if __name__ == "__main__":
     main()
