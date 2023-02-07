@@ -83,12 +83,30 @@ LED = ((0,0),
      " │ "
     ])
 
+LED2 = ((0,0),
+    [
+     " │ ",
+     "━┷━",
+     "╱⇉╲",
+     "▔╿▔",
+     " │ "
+    ])
+
 DIODE = ((0,0),
     [
      " │ ",
      "▁╽▁",
      "╲ ╱",
      "━┳━",
+     " │ "
+    ])
+
+DIODE2 = ((0,0),
+    [
+     " │ ",
+     "━┷━",
+     "╱ ╲",
+     "▔╿▔",
      " │ "
     ])
 
@@ -494,7 +512,10 @@ def main():
                 pos = parse_position(i[2], norm)
                 ref = parse_reference(i, norm)
                 val = parse_value(i, norm)
-                devices.append( (pos, LED, ref, val) )
+                if pos[2] == 270:
+                    devices.append( (pos, LED2, ref, val) )
+                else:
+                    devices.append( (pos, LED, ref, val) )
             elif i[1][1] == '"power:GND"':
                 pos = parse_position(i[2], norm)
                 ref = parse_reference(i, norm)
@@ -511,7 +532,10 @@ def main():
                 pos = parse_position(i[2], norm)
                 ref = parse_reference(i, norm)
                 val = parse_value(i, norm)
-                devices.append( (pos, DIODE, ref, val) )
+                if pos[2] == 270:
+                    devices.append( (pos, DIODE2, ref, val) )
+                else:
+                    devices.append( (pos, DIODE, ref, val) )
             elif re.match('"Transistor_BJT', i[1][1]):
                 pos = parse_position(i[2], norm)
                 ref = parse_reference(i, norm)
