@@ -17,8 +17,6 @@ They provide location information for every component as well as orientation. Al
 
 ## Scope
 
-The library currently supports 8, 16, 32 and 64 bit signed and unsigned types as well as floats and doubles.
-
-All basic arithmetic operators are supported as well as bitwise operators for integer types and square roots for floating point types.
-
-Comparisons and masking are supported as well, but shuffling as well as other selections based on comparison results still need to be implemented
+It seems that rendering resistors, inductors, capacitors etc. in unicode is only really possible if they are oriented vertically due to the non-square characters.
+You obviously need a monospace font to get a meaningful result.
+The amount of symbols supported so far is limited. One problem about BJTs is that kicad does not encode their polarity in the name, thus right now we render them all as NPN...
