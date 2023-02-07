@@ -18,5 +18,7 @@ They provide location information for every component as well as orientation. Al
 ## Scope
 
 It seems that rendering resistors, inductors, capacitors etc. in unicode is only really possible if they are oriented vertically due to the non-square characters.
+
 You obviously need a monospace font to get a meaningful result.
+
 The amount of symbols supported so far is limited. One problem about BJTs is that kicad does not encode their polarity in the name, thus right now we render them all as NPN...
