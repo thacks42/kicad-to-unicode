@@ -196,12 +196,19 @@ PWR = ((0,-1),
 
 POLYLINE_BASE = 0x13000
 WIRE_BASE = 0x14000
+BASE_MASK = 0xff000
 
 UP = 1
 RIGHT = 2
 DOWN = 4
 LEFT = 8
 JUNC = 16
+
+UP_DASHED = 32
+RIGHT_DASHED = 64
+DOWN_DASHED = 128
+LEFT_DASHED = 256
+
     
 def draw_symbol(fb, symbol, pos):
     if len(symbol[1]) == 0:
@@ -264,19 +271,28 @@ def draw_polylines(fb, lines):
         y0 = min(start[1], end[1])
         y1 = max(start[1], end[1])
         
+        
+        horizontal = LEFT_DASHED | RIGHT_DASHED
+        vertical = UP_DASHED | DOWN_DASHED
+        
+        style = l[2]
+        if style == "solid":
+            horizontal = LEFT | RIGHT
+            vertical = UP | DOWN 
+            
         if y0 == y1: #horizontal
             add_direction_to_metachar(fb, x0, y0, RIGHT, POLYLINE_BASE)
             add_direction_to_metachar(fb, x1, y1, LEFT, POLYLINE_BASE)
             
             for x in range(x0+1, x1):
-                fb[y0][x] = '╌'
+                add_direction_to_metachar(fb, x, y0, horizontal, POLYLINE_BASE)
         
         elif x0 == x1: #vertical
             add_direction_to_metachar(fb, x0, y0, DOWN, POLYLINE_BASE)
             add_direction_to_metachar(fb, x1, y1, UP, POLYLINE_BASE)
             
             for y in range(y0 + 1, y1):
-                fb[y][x0] = '┆'
+                add_direction_to_metachar(fb, x0, y, vertical, POLYLINE_BASE)
                 
         else:
             print("error, polyline neither horizontal nor vertical")
@@ -314,35 +330,60 @@ def draw_junctions(fb, junctions):
         pos_x = int(pos[0] + 0.5)
         pos_y = int(pos[1] + 0.5)
         add_direction_to_metachar(fb, pos_x, pos_y, JUNC, WIRE_BASE)
-        
+
+def select_polyline_piece(c):
+    polyline_dashed_pieces = ['x', ' ', ' ', '╰', ' ', '╎', '╭', '├', ' ', '╯', '╌', '┴', '╮', '┤', '┬', '┼']
+    polyline_solid_pieces =  ['x', ' ', ' ', '╰', ' ', '│', '╭', '├', ' ', '╯', '─', '┴', '╮', '┤', '┬', '┼']
+    directions = c & 0x1ff
+    num_directions = c.bit_count()
+    if num_directions == 0:
+        print("invalid polyline metachar...")
+    elif num_directions == 2:
+        dashed = (directions & 0x1e0) != 0
+        solid = (directions & 0xf) != 0
+        if dashed and not solid:
+            return polyline_dashed_pieces[directions >> 5]
+        if solid and not dashed:
+            return polyline_solid_pieces[directions]
+        directions = (directions & 0xf) | (directions >> 5)
+        return polyline_solid_pieces[directions]
+    else:
+        directions = (directions & 0xf) | (directions >> 5)
+        return polyline_solid_pieces[directions]
+    
 
 def render(fb):
-    
-    polyline_endpieces = ['x', '┆', '╌', '└', '┆', '┆', '┌', '├', '╌', '┘', '┄', '┴', '┐', '┤', '┬', '┼']
-    wire_endpieces =     ['x', '╽', '╼', '└', '╿', '│', '┌', '├', '╾', '┘', '─', '┴', '┐', '┤', '┬', '┼']
-    junctions =          ['x', '╽', '╼', '└', '╿', '┃', '┏', '┣', '╾', '┛', '━', '┻', '┓', '┫', '┳', '╋']
+    wire_endpieces =     ['x', '╽', '╾', '└', '╿', '│', '┌', '├', '╼', '┘', '─', '┴', '┐', '┤', '┬', '┼']
+    junctions =          ['x', '╽', '╾', '└', '╿', '┃', '┏', '┣', '╼', '┛', '━', '┻', '┓', '┫', '┳', '╋']
     
     fb_2 = copy.deepcopy(fb)
     for y in range(len(fb)):
         for x in range(len(fb[0])):
-            if ord(fb[y][x]) & POLYLINE_BASE == POLYLINE_BASE:
-                fb_2[y][x] = polyline_endpieces[ord(fb[y][x]) & 15]
+            if ord(fb[y][x]) & BASE_MASK == POLYLINE_BASE:
+                fb_2[y][x] = select_polyline_piece(ord(fb[y][x]) & 0x1ff)
             
-            if ord(fb[y][x]) & WIRE_BASE == WIRE_BASE:
+            if ord(fb[y][x]) & BASE_MASK == WIRE_BASE:
                 if ord(fb[y][x]) & JUNC:
                     fb_2[y][x] = junctions[ord(fb[y][x]) & 15]
                 else:
                     fb_2[y][x] = wire_endpieces[ord(fb[y][x]) & 15]
     
-    start_x = 1000
-    start_y = 1000
+    start_x = 999999
+    start_y = 999999
+    end_x = 0
+    end_y = 0
+    
     for y in range(len(fb_2)):
         for x in range(len(fb_2[0])):
             if fb_2[y][x] != ' ':
                 start_x = min(start_x, x)
                 start_y = min(start_y, y)
-    for y in range(start_y, len(fb_2)):
-        for x in range(start_x, len(fb_2[0])):
+                end_x = max(end_x, x)
+                end_y = max(end_y, y)
+    end_x += 1
+    end_y += 1
+    for y in range(start_y, end_y):
+        for x in range(start_x, end_x):
             print(fb_2[y][x], end='')
         print()
 
@@ -399,7 +440,7 @@ def init_argparse():
         "--width", type=int, default=150, help = "width of the framebuffer"
     )
     parser.add_argument(
-        "--height", type=int, default=50, help = "height of the framebuffer"
+        "--height", type=int, default=80, help = "height of the framebuffer"
     )
     parser.add_argument('file', nargs=1)
 
@@ -462,10 +503,11 @@ def main():
         if i[0] == 'polyline':
             start = i[1][1]
             end = i[1][2]
+            style = i[2][2][1]
             
             start_coords = parse_line_coords(start, norm)
             end_coords = parse_line_coords(end, norm)
-            lines.append( (start_coords, end_coords) )
+            lines.append( (start_coords, end_coords, style) )
         
         if i[0] == 'symbol' :
             if i[1][1] == '"Device:R"':
@@ -573,8 +615,13 @@ def main():
             pos = parse_position(i[2], norm)
             val = i[1].strip('"')
             ref = None
-            texts.append( (pos, ref, val) )
-            
+            if '\\n' in val:
+                vals = val.split('\\n')
+                pos = (pos[0], pos[1] - len(vals)+1)
+                for n,v in enumerate(vals):
+                    texts.append( ((pos[0],pos[1] + n), ref, v) )
+            else:
+                texts.append( (pos, ref, val) )
     
     fb = [[' '] * fb_width for _ in range(fb_heigth)]
     
