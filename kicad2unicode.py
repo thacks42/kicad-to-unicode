@@ -565,7 +565,7 @@ def main():
             if rot == 180:
                 LABEL = ((-len(name)//2-1,0),[name + " ᐅ"])
             if rot == 0:
-                LABEL = ((len(name)//2-1,0),["ᐊ " + name])
+                LABEL = ((len(name)//2+2,0),["ᐊ " + name])
             
             devices.append( (pos, LABEL, ref, val) )
             
