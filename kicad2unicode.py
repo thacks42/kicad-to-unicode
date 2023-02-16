@@ -3,6 +3,7 @@ from pyparsing import nestedExpr
 import argparse
 import copy
 import re
+import pprint
 
 EMPTY = ((0,0),
     [
@@ -253,11 +254,13 @@ def draw_text(fb, t):
 
 def add_direction_to_metachar(fb, x, y, direction, base):
     cur = fb[y][x]
-    mask = base
-    if cur != ' ':
-        mask = ord(cur)
-    mask |= direction
-    fb[y][x] = chr(mask)
+    if cur == ' ':
+        fb[y][x] = chr(base | direction)
+    else:
+        if ord(cur) & BASE_MASK == base:
+            fb[y][x] = chr(ord(cur) | direction)
+        else: #existing other thing
+            fb[y][x] = chr(ord(cur) | base | direction)
     
         
 
@@ -296,7 +299,9 @@ def draw_polylines(fb, lines):
                 
         else:
             print("error, polyline neither horizontal nor vertical")
-    
+        
+
+
 def draw_wires(fb, wires):
     for w in wires:
         start = w[0]
@@ -307,19 +312,22 @@ def draw_wires(fb, wires):
         y0 = min(start[1], end[1])
         y1 = max(start[1], end[1])
         
+        horizontal = LEFT | RIGHT
+        vertical = UP | DOWN 
+        
         if y0 == y1: #horizontal
             add_direction_to_metachar(fb, x0, y0, RIGHT, WIRE_BASE)
             add_direction_to_metachar(fb, x1, y1, LEFT, WIRE_BASE)
             
             for x in range(x0+1, x1):
-                fb[y0][x] = '─'
+                add_direction_to_metachar(fb, x, y0, horizontal, WIRE_BASE)
         
         elif x0 == x1: #vertical
             add_direction_to_metachar(fb, x0, y0, DOWN, WIRE_BASE)
             add_direction_to_metachar(fb, x1, y1, UP, WIRE_BASE)
             
             for y in range(y0 + 1, y1):
-                fb[y][x0] = '│'
+                add_direction_to_metachar(fb, x0, y, vertical, WIRE_BASE)
                 
         else:
             print("error, wire neither horizontal nor vertical")
@@ -330,6 +338,69 @@ def draw_junctions(fb, junctions):
         pos_x = int(pos[0] + 0.5)
         pos_y = int(pos[1] + 0.5)
         add_direction_to_metachar(fb, pos_x, pos_y, JUNC, WIRE_BASE)
+
+
+def draw_device(fb, device):
+    pos, outlines, pins, name, ref, val = device
+    lines = []
+    
+    for o in outlines:
+        
+        start = (o[0][0] + pos[0], o[0][1] + pos[1])
+        end = (o[1][0] + pos[0], o[1][1] + pos[1])
+        lines.append( ((start[0], start[1]), (start[0], end[1])) )
+        lines.append( ((start[0], end[1]), (end[0], end[1])) )
+        lines.append( ((end[0], end[1]), (end[0], start[1])) )
+        lines.append( ((end[0], start[1]), (start[0], start[1])) )
+    
+    draw_value(fb, val, (-len(val[1])//2+1,1))
+    
+    texts = []
+    
+    for i in pins:
+        start = (i[0][0] + pos[0], i[0][1] + pos[1])
+        text_pos = start
+        name_pos = start
+        rotation = i[0][2]
+        length = i[1]-1
+        number = i[2]
+        name = i[3]
+        end = None
+        
+        
+        if rotation == 0:
+            start = (start[0]+1, start[1])
+            end = (start[0] + length, start[1])
+            name_pos = (name_pos[0] + 4, name_pos[1] + 1)
+        elif rotation == 90:
+            start = (start[0], start[1]-1)
+            end = (start[0], start[1] - length)
+            name_pos = (name_pos[0]-len(name)//2, name_pos[1] - 2)
+            text_pos = (text_pos[0]-1, text_pos[1])
+        elif rotation == 180:
+            start = (start[0]-1, start[1])
+            end = (start[0] - length, start[1])
+            name_pos = (name_pos[0] - len(name) - 3, name_pos[1] + 1)
+        elif rotation == 270:
+            start = (start[0], start[1]+1)
+            end = (start[0], start[1] + length)
+            name_pos = (name_pos[0]-len(name)//2, name_pos[1] + 4)
+            text_pos = (text_pos[0]-1, text_pos[1]+2)
+        else:
+            print("rotation of device pins not implemented!")
+            continue
+        
+        lines.append((start, end))
+        texts.append((text_pos, None, number))
+        if name != '~':
+            texts.append((name_pos, None, name))
+    
+    draw_wires(fb, lines)
+    for t in texts:
+        draw_text(fb, t)
+
+
+
 
 def select_polyline_piece(c):
     polyline_dashed_pieces = ['x', ' ', ' ', '╰', ' ', '╎', '╭', '├', ' ', '╯', '╌', '┴', '╮', '┤', '┬', '┼']
@@ -362,11 +433,13 @@ def render(fb):
             if ord(fb[y][x]) & BASE_MASK == POLYLINE_BASE:
                 fb_2[y][x] = select_polyline_piece(ord(fb[y][x]) & 0x1ff)
             
-            if ord(fb[y][x]) & BASE_MASK == WIRE_BASE:
+            elif ord(fb[y][x]) & BASE_MASK == WIRE_BASE:
                 if ord(fb[y][x]) & JUNC:
                     fb_2[y][x] = junctions[ord(fb[y][x]) & 15]
                 else:
                     fb_2[y][x] = wire_endpieces[ord(fb[y][x]) & 15]
+            elif ord(fb[y][x]) & BASE_MASK == (WIRE_BASE | POLYLINE_BASE):
+                fb_2[y][x] = select_polyline_piece(ord(fb[y][x]) & 0x1ff)
     
     start_x = 999999
     start_y = 999999
@@ -389,8 +462,8 @@ def render(fb):
 
 def parse_position(line, norm):
     if line[0] == 'at':
-        x = float(line[1]) * norm
-        y = float(line[2]) * norm
+        x = int(round(float(line[1]) * norm ))
+        y = int(round(float(line[2]) * norm ))
         rot = 0.0
         if len(line) > 3:
             rot = float(line[3])
@@ -419,8 +492,71 @@ def parse_value(line, norm):
                 return (pos, value)
 
 def parse_line_coords(line, norm):
-    result = (int(float(line[1]) * norm + 0.5), int(float(line[2]) * norm + 0.5))
+    result = (int(round(float(line[1]) * norm)), int(round(float(line[2]) * norm)) )
     return result
+
+def parse_rectangle(line, norm):
+    start = ( -int(round(float(line[1][1]) * norm)), -int(round(float(line[1][2]) * norm)) )
+    end = ( -int(round(float(line[2][1]) * norm )), -int(round(float(line[2][2]) * norm)) )
+    if start[0] > end[0]:
+        return (end, start)
+    return (start, end)
+
+def parse_pin(line, norm):
+    pos = None
+    length = None
+    number = None
+    name = None
+    for i in line:
+        if type(i) is list:
+            if i[0] == 'at':
+                pos = parse_position(i,norm)
+            if i[0] == 'length':
+                length = int(round(float(i[1]) * norm))
+            if i[0] == 'number':
+                number = i[1].strip('"')
+            if i[0] == 'name':
+                name = i[1].strip('"')
+    return ((pos[0], -pos[1], pos[2]), length, number, name)
+                
+
+def lookup_outline(prop, norm):
+    outlines = []
+    for i in prop:
+        if type(i) is list:
+            if i[0] == 'rectangle':
+                outlines.append(parse_rectangle(i, norm))
+    return outlines
+                
+
+def lookup_pins(prop, norm):
+    pins = []
+    for i in prop:
+        if type(i) is list:
+            if i[0] == 'pin' and 'hide' not in i:
+                pins.append(parse_pin(i, norm))
+    return pins
+
+def lookup_device(data, name, norm):
+    pins = []
+    outlines = []
+    for i in data[0]:
+        if i[0] == 'lib_symbols':
+            for symbol in i:
+                if symbol[0] == 'symbol':
+                    if symbol[1] == name:
+                        for prop in symbol:
+                            if type(prop) is list:
+                                if prop[0] == 'symbol':
+                                    new_outlines = lookup_outline(prop, norm)
+                                    for o in new_outlines:
+                                        outlines.append(o)
+                                    new_pins = lookup_pins(prop, norm)
+                                    for p in new_pins:
+                                        pins.append(p)
+    
+    return (outlines, pins)
+                                    
 
 def init_argparse():
     parser = argparse.ArgumentParser(
@@ -437,7 +573,7 @@ def init_argparse():
         "-b", "--box-transistors", action=argparse.BooleanOptionalAction, default=True, help="draw boxes around transistors (bjt/fet)"
     )
     parser.add_argument(
-        "--width", type=int, default=150, help = "width of the framebuffer"
+        "--width", type=int, default=190, help = "width of the framebuffer"
     )
     parser.add_argument(
         "--height", type=int, default=80, help = "height of the framebuffer"
@@ -485,6 +621,8 @@ def main():
     devices = []
     texts = []
     lines = []
+    
+    complex_devices = []
     
     parsed = nestedExpr('(',')').parseString(data).asList()
     for i in parsed[0]:
@@ -593,9 +731,16 @@ def main():
                 ref = parse_reference(i, norm)
                 val = parse_value(i, norm)
                 devices.append( (pos, PMOS, ref, val) )
-            else:
-                print("unknown symbol found:")
-                print(i)
+            else:#re.match('"Connector', i[1][1]):
+                name = i[1][1]
+                pos = parse_position(i[2], norm)
+                ref = None
+                val = parse_value(i, norm)
+                outlines, pins = lookup_device(parsed,name, norm)
+                complex_devices.append( (pos, outlines, pins, name, ref, val) )
+            #else:
+            #    print("unknown symbol found:")
+            #    print(i)
         
         if i[0] == 'global_label' :
             pos = parse_position(i[3], norm)
@@ -624,6 +769,9 @@ def main():
                 texts.append( (pos, ref, val) )
     
     fb = [[' '] * fb_width for _ in range(fb_heigth)]
+    
+    for d in complex_devices:
+        draw_device(fb, d)
     
     draw_wires(fb, wires)
     draw_junctions(fb, junctions)
